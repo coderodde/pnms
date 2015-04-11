@@ -6,6 +6,8 @@
 #include <thread>
 #include <vector>
 
+constexpr size_t MINIMUM_CAPACITY = 256;
+
 /*******************************************************************************
 * Implements a simple, array-based queue of integers. All three operations run *
 * in constant time. This queue, however, does not check for under-/overflow of *
@@ -13,7 +15,6 @@
 *******************************************************************************/
 class UnsafeIntQueue {
 private:
-    const size_t MINIMUM_CAPACITY = 256;
 
     size_t m_head;
     size_t m_tail;
