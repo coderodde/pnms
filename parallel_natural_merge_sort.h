@@ -3,10 +3,18 @@
 
 #include <algorithm>
 #include <iterator>
-#include <thread>
-#include <vector>
+#include <iostream>
 
-constexpr size_t MINIMUM_CAPACITY = 256;
+#define USE_POSIX_THREADS
+
+#ifdef USE_POSIX_THREADS
+#include <pthread.h>
+#endif
+
+// Include 'thread' for 'hardware_concurrency'.
+#include <thread> 
+
+static constexpr size_t MINIMUM_CAPACITY = 256;
 
 /*******************************************************************************
 * Implements a simple, array-based queue of integers. All three operations run *
@@ -15,7 +23,7 @@ constexpr size_t MINIMUM_CAPACITY = 256;
 *******************************************************************************/
 class UnsafeIntQueue {
 private:
-
+    
     size_t m_head;
     size_t m_tail;
     size_t m_size;
@@ -304,6 +312,38 @@ void natural_merge_sort(RandomIt first, RandomIt last, Cmp cmp)
     delete[] buffer;
 }
 
+template<class RandomIt, class Cmp>
+struct data {
+    RandomIt source_begin;
+    RandomIt source_end;
+    RandomIt target_begin;
+    Cmp cmp;
+};
+
+template<class RandomIt, class Cmp>
+struct data2 {
+    RandomIt target;
+    RandomIt source;
+    size_t length;
+    size_t quota;
+    Cmp cmp;
+};
+
+template<class RandomIt, class Cmp>
+void* parallel_natural_merge_sort_thread_proxy(void*);
+
+template<class RandomIt, class Cmp>
+void* natural_merge_sort_thread_proxy(void* args) 
+{
+    data<RandomIt, Cmp>* p_data = (data<RandomIt, Cmp>*) args;
+    natural_merge_sort_impl(p_data->source_begin,
+                            p_data->source_end,
+                            p_data->target_begin,
+                            p_data->cmp);
+    return nullptr;
+}
+
+
 /*******************************************************************************
 * Implements parallel merge sort.                                              *
 *******************************************************************************/
@@ -326,19 +366,39 @@ void parallel_natural_merge_sort_impl(RandomIt source,
 
     if (thread_quota == 2)
     {
+        
+#ifdef USE_POSIX_THREADS
+        
+        std::cout << "pthreads" << std::endl;
+        pthread_t thread_;
+        
+        data<RandomIt, Cmp> mydata;
+        mydata.source_begin = source;
+        mydata.source_end = source + left_length;
+        mydata.target_begin = target;
+        mydata.cmp = cmp;
+        
+        pthread_create(&thread_, 
+                       NULL, 
+                       (void* (*)(void*)) natural_merge_sort_thread_proxy<RandomIt, Cmp>,
+                       (void*) &mydata);
+#else // use std::thread
         std::thread thread_(natural_merge_sort_impl<RandomIt, Cmp>,
                             source,
                             source + left_length,
                             target,
                             cmp);
-
+#endif
         natural_merge_sort_impl(source + left_length, 
                                 source + length, 
                                 target + left_length, 
                                 cmp);
-
+        
+#ifdef USE_POSIX_THREADS
+        pthread_join(thread_, NULL);
+#else
         thread_.join();
-
+#endif
         std::merge(source, 
                    source + left_length, 
                    source + left_length, 
@@ -348,12 +408,28 @@ void parallel_natural_merge_sort_impl(RandomIt source,
         return;
     }
 
+#ifdef USE_POSIX_THREADS
+    pthread_t left_thread;
+    
+    data2<RandomIt, Cmp> mydata;
+    mydata.target = target;
+    mydata.source = source;
+    mydata.length = left_length;
+    mydata.quota = left_quota;
+    mydata.cmp = cmp;
+    
+    pthread_create(&left_thread,
+                   NULL,
+                   (void* (*)(void*)) parallel_natural_merge_sort_thread_proxy<RandomIt, Cmp>,
+                   (void*) &mydata);
+#else
     std::thread left_thread(parallel_natural_merge_sort_impl<RandomIt, Cmp>,
                             target, 
                             source, 
                             left_length, 
                             left_quota, 
                             cmp);
+#endif
 
     parallel_natural_merge_sort_impl(target + left_length, 
                                      source + left_length, 
@@ -361,8 +437,12 @@ void parallel_natural_merge_sort_impl(RandomIt source,
                                      right_quota, 
                                      cmp);
     // Wait for the left thread.
+#ifdef USE_POSIX_THREADS
+    pthread_join(left_thread, NULL);
+#else
     left_thread.join();
-
+#endif
+    
     // Merge the two chunks.
     std::merge(source, 
                source + left_length, 
@@ -370,6 +450,7 @@ void parallel_natural_merge_sort_impl(RandomIt source,
                source + length,
                target,
                cmp);
+    
 }
 
 /*******************************************************************************
@@ -382,20 +463,29 @@ void parallel_natural_merge_sort(RandomIt begin, RandomIt end, Cmp cmp)
 {
     // At least 16384 elements per thread.
     constexpr size_t MINIMUM_THREAD_LOAD = 1 << 14;
+    
     const size_t cores = std::thread::hardware_concurrency();
     const size_t length = std::distance(begin, end);
     const size_t spawn = std::min(cores, length / MINIMUM_THREAD_LOAD);
-
-    if (spawn < 2)
-    {
-        natural_merge_sort(begin, end, cmp);
-        return;
-    }
-
+    
     typedef typename std::iterator_traits<RandomIt>::value_type value_type;
+    
     RandomIt buffer = new value_type[length];
     std::copy(begin, end, buffer);
     parallel_natural_merge_sort_impl(buffer, begin, length, spawn, cmp);
 }
 
+#ifdef USE_POSIX_THREADS
+template<class RandomIt, class Cmp>
+void* parallel_natural_merge_sort_thread_proxy(void* args)
+{
+    data2<RandomIt, Cmp>* p_data = (data2<RandomIt, Cmp>*) args;
+    parallel_natural_merge_sort_impl(p_data->target,
+                                     p_data->source,
+                                     p_data->length,
+                                     p_data->quota,
+                                     p_data->cmp);
+    return nullptr;
+}
+#endif
 #endif

@@ -135,6 +135,11 @@ void profile_parallel_natural_merge_sort(T begin, T end, Cmp cmp)
               << std::endl;
 }
 
+bool ptr_cmp(int* a, int* b)
+{
+    return *a < *b;
+}
+
 /*******************************************************************************
 * Profiles the sorting algorithms on a random integer array.                   *
 *******************************************************************************/
@@ -201,15 +206,15 @@ static void profile_on_integer_pointer_array(const size_t sz,
     
     profile_stable_sort(array1, 
                         array1 + sz, 
-                        lam);
+                        ptr_cmp);
 
     profile_natural_merge_sort(array2, 
                                array2 + sz,
-                               lam);
+                               ptr_cmp);
 
     profile_parallel_natural_merge_sort(array3,
                                         array3 + sz,
-                                        lam);
+                                        ptr_cmp);
     std::cout << "Same contents: "
               << (std::equal(array1, array1 + sz, array2)
                  && std::equal(array1, array1 + sz, array3))
